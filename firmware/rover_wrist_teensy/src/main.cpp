@@ -1,6 +1,9 @@
 // Includes
 #include <Arduino.h>
+#include "ros.h"
+#include "sensor_msgs/JointState.h"
 #include "WristStepper.h"
+#include <Servo.h>
 
 
 /* === Pin assignments === */
@@ -16,6 +19,8 @@
 // #define STPR_2_DMODE1_PIN 5
 // #define STPR_2_DMODE2_PIN 2
 
+#define CLAW_SERVO_PIN 7
+
 #define ENCODER_1_PIN A9
 #define ENCODER_2_PIN A8
 
@@ -25,6 +30,8 @@
 #define ENC_TO_PITCH_GEAR_RATIO 1
 #define MAX_PITCH 35                // Degrees
 #define MIN_PITCH -45
+#define CLAW_MIN 0
+#define CLAW_MAX 90
 #define ENC_TO_YAW_GEAR_RATIO 1 //TODO
 #define ENC_COUNTS_PER_DEG 1024 / 360
 
@@ -49,14 +56,22 @@ uint64_t next_ctrl_loop = 0; // Micros for next control loop
 uint64_t next_blink = 0;
 uint64_t next_print = 0;
 uint8_t blink_state = LOW;
-// bool stop_motor = true;
-// IntervalTimer timer;
 
-float last_pitch = 0;
-float last_yaw = 0;
+float pitch_setpoint = 0;
+float yaw_setpoint = 0;
+float claw_setpoint = 0;
 
 WristStepper* stpr_1;
 WristStepper* stpr_2;
+Servo claw_servo;
+
+// Revceived message callback
+void setPositionCallback(const sensor_msgs::JointState& cmd_msg);
+// Ros node handle
+ros:: NodeHandle nh;
+// Ros subscriber
+ros::Subscriber<sensor_msgs::JointState> sub("joint_states", setPositionCallback);
+
 
 
 void toggleStep1() {
@@ -162,50 +177,84 @@ bool setWrist(float yaw_setpoint, float pitch_setpoint){
 }
 
 
-float setWristPitch(float pitch_setpoint, bool exectute){
-  // Endpoints
-  if( pitch_setpoint > MAX_PITCH){
-    pitch_setpoint = MAX_PITCH;
-  }else if(pitch_setpoint < MIN_PITCH){
-    pitch_setpoint = MIN_PITCH;
-  }
+// float setWristPitch(float pitch_setpoint, bool exectute){
+//   // Endpoints
+//   if( pitch_setpoint > MAX_PITCH){
+//     pitch_setpoint = MAX_PITCH;
+//   }else if(pitch_setpoint < MIN_PITCH){
+//     pitch_setpoint = MIN_PITCH;
+//   }
 
-  float delta_deg = pitch_setpoint - getWristPitch();
+//   float delta_deg = pitch_setpoint - getWristPitch();
 
-  if(exectute){
-    int16_t enc_inc = delta_deg * ENC_TO_PITCH_GEAR_RATIO * ENC_COUNTS_PER_DEG / 2;
-    // Steppers go opposite ways for pitch
-    stpr_1->setPosInc(enc_inc);
-    stpr_2->setPosInc(-1 * enc_inc);
-  }
-  last_pitch = pitch_setpoint;
-  return delta_deg;
+//   if(exectute){
+//     int16_t enc_inc = delta_deg * ENC_TO_PITCH_GEAR_RATIO * ENC_COUNTS_PER_DEG / 2;
+//     // Steppers go opposite ways for pitch
+//     stpr_1->setPosInc(enc_inc);
+//     stpr_2->setPosInc(-1 * enc_inc);
+//   }
+//   last_pitch = pitch_setpoint;
+//   return delta_deg;
+// }
+
+// float setWristYaw(float yaw_setpoint, bool execute){
+//   float delta_deg = yaw_setpoint - getWristYaw();
+
+//   // Take shortest path
+//   if(abs(delta_deg) > 360/2){
+//     delta_deg = (360 - abs(delta_deg)) * (delta_deg < 0 ? 1 : -1);  // opposite direction
+//   }
+
+//   if(execute){
+//     int16_t enc_inc = delta_deg * ENC_TO_YAW_GEAR_RATIO * ENC_COUNTS_PER_DEG / 2;
+//     // Steppers go same way for yaw
+//     stpr_1->setPosInc(enc_inc);
+//     stpr_2->setPosInc(enc_inc);
+//   }
+//   last_yaw = yaw_setpoint;
+//   return delta_deg;
+// }
+
+void setPositionCallback(const sensor_msgs::JointState& cmd_msg){
+
+  // TODO filter old
+
+  float pitch = cmd_msg.position[3];
+  float yaw = cmd_msg.position[4];
+  float claw = cmd_msg.position[5];
+
+  // Convert to degrees
+  pitch = pitch * 360.0/(2*PI);
+  yaw = yaw * 360.0/(2*PI);
+  claw = claw * 360.0/(2*PI);
+
+  // Map yaw to [0, 360)
+  while(yaw < 0) yaw += 360;
+  while(yaw >= 360) yaw -= 360;
+
+  // Map pitch to [-180, 180)
+  while(pitch < -180) pitch += 360;
+  while(pitch >= 180) pitch -= 360;
+
+  // Map claw to [0, 180)
+  while(claw < 0) claw += 180;
+  while(claw >= 180) claw -= 180;
+
+  // Claw endpoints
+  if(claw < CLAW_MIN) claw = CLAW_MIN;
+  if(claw > CLAW_MAX) claw = CLAW_MAX;
+
 }
-
-float setWristYaw(float yaw_setpoint, bool execute){
-  float delta_deg = yaw_setpoint - getWristYaw();
-
-  // Take shortest path
-  if(abs(delta_deg) > 360/2){
-    delta_deg = (360 - abs(delta_deg)) * (delta_deg < 0 ? 1 : -1);  // opposite direction
-  }
-
-  if(execute){
-    int16_t enc_inc = delta_deg * ENC_TO_YAW_GEAR_RATIO * ENC_COUNTS_PER_DEG / 2;
-    // Steppers go same way for yaw
-    stpr_1->setPosInc(enc_inc);
-    stpr_2->setPosInc(enc_inc);
-  }
-  last_yaw = yaw_setpoint;
-  return delta_deg;
-}
-
 
 void setup() {
 
   while(!Serial);
-  Serial.begin(115200);
-  Serial.println("starting...");
+
+  // Init ROS
+  nh.initNode();
+  nh.subscribe(sub);
+
+  nh.loginfo("Starting...");
 
   // init pins
   pinMode(STPR_1_STEP_PIN, OUTPUT);
@@ -220,6 +269,13 @@ void setup() {
   stpr_1->setPgain(DEFAULT_P_GAIN);
   stpr_2->setPgain(DEFAULT_P_GAIN);
 
+  // init claw servo
+  claw_servo.attach(CLAW_SERVO_PIN);
+
+  // Initial joint states
+  yaw_setpoint = getWristYaw();
+  pitch_setpoint = getWristPitch();
+  claw_setpoint = 50;
 }
 
 void loop() {
@@ -228,65 +284,15 @@ void loop() {
 
   if(now >= next_ctrl_loop){
     next_ctrl_loop = next_ctrl_loop + ctrl_loop_period;
-    // stpr_1->sampleEncoder();
-    // stpr_2->sampleEncoder();
-    // stpr_1->setPos(ENC_1_OFFSET);
-    // stpr_2->setPos(ENC_2_OFFSET);
 
-    // stpr_1->setPosInc(50);
-    // stpr_2->setPosInc(-50);
+    setWrist(yaw_setpoint, pitch_setpoint);
+    claw_servo.write(claw_setpoint);
 
-    // Execute on axis furthest from destination
-    float pitch = -45;
-    float yaw = 180;
-    // float pitch_delta = setWristPitch(pitch, false);
-    // float yaw_delta = setWristYaw(yaw,false);
-
-    // if(abs(pitch_delta) > abs(yaw_delta)){
-    //   setWristPitch(pitch, true);
-    // }else{
-    //   setWristYaw(yaw, true);
-    // }
-
-    setWrist(yaw, pitch);
-
-    // Serial.printf("pitch delta: %f\t", pitch_delta);
-    // Serial.printf("yaw delta: %f\t", yaw_delta);
-    Serial.printf("pitch: %f\t", getWristPitch());
-    Serial.printf("yaw: %f\t", getWristYaw());
-    Serial.printf("enc 1: %i\t", getEncRelPos(stpr_1->getEncoderPos(), ENC_1_OFFSET));
-    Serial.printf("enc 2: %i\n", getEncRelPos(stpr_2->getEncoderPos(), ENC_2_OFFSET));
-
-
-    // // Map to (-1,1)
-    // speed_1 = 0.5;
-    // // float speed_2 = (ain_2 * (2.0/1023.0)) - 1;
-    // speed_2 = speed_1;
-    // if(speed_1 < 0.1 && speed_1 > -0.1){
-    //   speed_1 = 0;
-    // } 
-    // if(speed_2 < 0.1 && speed_2 > -0.1){
-    //   speed_2 = 0;
-    // } 
-    // stpr_1->setSpeed(speed_1);
-    // stpr_2->setSpeed(speed_2);
-    //
-    // Serial.print("\tenc_1: "); Serial.print(in);
-    // Serial.print("\tread time: "); Serial.print(stop - start);
-    // Serial.print("setpoint: "); Serial.print(ain_1);
-    // Serial.print("\tencoder pos: "); Serial.print(stpr_2.getEncoderPos());
-    // Serial.print("\tstep freq: "); Serial.print(freq);
-    // Serial.print("\tperiod: "); Serial.print(MICROS_PER_SEC / abs(speed_1 * max_step_freq));
-
-    // Serial.print(ain_1);
-    // Serial.print(" ");
-    // Serial.print(stpr_2.getEncoderPos());
-    // Serial.println();
 
   }
 
   // print loop
-
+/*
   if(now >= next_print && Serial){
     next_print += PRINT_PERIOD;
     // Serial.println(ain_1);
@@ -299,7 +305,7 @@ void loop() {
 
     // Serial.println();
   }
-
+*/
   if(now >= next_blink){
     next_blink = next_blink + BLINK_PERIOD;
     if(blink_state == HIGH){
@@ -310,5 +316,8 @@ void loop() {
       digitalWriteFast(LED_BUILTIN, blink_state);
     }
   }
+
+  // Do the ROS stuff
+  nh.spinOnce();
 
 }

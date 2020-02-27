@@ -32,9 +32,9 @@ WristStepper::WristStepper(void (toggleStep)(void), const uint8_t dir_pin, const
     pinMode(_dmode_pins[1], OUTPUT);
     pinMode(_dmode_pins[2], OUTPUT);
 
-    Serial.print("Setting DMode...");
+    // Serial.print("Setting DMode...");
     this->setDMode(4);
-    Serial.println("...Done");
+    // Serial.println("...Done");
 }
 
 void WristStepper::sampleEncoder(){
