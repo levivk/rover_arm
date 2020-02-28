@@ -28,15 +28,15 @@
 
 #define MICROS_PER_SEC 1000000
 #define ENC_TO_PITCH_GEAR_RATIO 1
-#define MAX_PITCH 35                // Degrees
-#define MIN_PITCH -45
+#define MAX_PITCH 55                // Degrees
+#define MIN_PITCH -55
 #define CLAW_MIN 0
 #define CLAW_MAX 90
-#define ENC_TO_YAW_GEAR_RATIO 1 //TODO
+#define ENC_TO_YAW_GEAR_RATIO 0.5 //TODO
 #define ENC_COUNTS_PER_DEG 1024 / 360
 
-#define ENC_1_OFFSET 173
-#define ENC_2_OFFSET 321
+#define ENC_1_OFFSET 145
+#define ENC_2_OFFSET 158
 
 // #define AIN_1_PIN A6
 // #define AIN_2_PIN 17
@@ -64,6 +64,8 @@ float claw_setpoint = 0;
 WristStepper* stpr_1;
 WristStepper* stpr_2;
 Servo claw_servo;
+
+char printbuf[128];
 
 // Revceived message callback
 void setPositionCallback(const sensor_msgs::JointState& cmd_msg);
@@ -244,6 +246,12 @@ void setPositionCallback(const sensor_msgs::JointState& cmd_msg){
   if(claw < CLAW_MIN) claw = CLAW_MIN;
   if(claw > CLAW_MAX) claw = CLAW_MAX;
 
+  yaw_setpoint = yaw;
+  pitch_setpoint = pitch;
+  claw_setpoint = claw;
+
+  // snprintf(printbuf, 128, "yaw_")
+
 }
 
 void setup() {
@@ -292,12 +300,18 @@ void loop() {
   }
 
   // print loop
-/*
+
   if(now >= next_print && Serial){
     next_print += PRINT_PERIOD;
     // Serial.println(ain_1);
     // Serial.print(stpr_2.getEncoderPos());
 
+    snprintf(printbuf, 128, "pitch: %f\tyaw: %f", getWristPitch(), getWristYaw());
+    nh.loginfo(printbuf);
+
+    snprintf(printbuf, 128, "yaw: %f", getWristYaw());
+    nh.loginfo(printbuf);
+    
     // Serial.print("\tencoder 1 pos: "); Serial.print(stpr_1->getEncoderPos());
     // Serial.print("\tencoder 2 pos: "); Serial.print(stpr_2->getEncoderPos());
     // Serial.print("\tpitch: "); Serial.print(getWristPitch());
@@ -305,7 +319,7 @@ void loop() {
 
     // Serial.println();
   }
-*/
+
   if(now >= next_blink){
     next_blink = next_blink + BLINK_PERIOD;
     if(blink_state == HIGH){
