@@ -10,6 +10,7 @@
 #define DEFAULT_MAX_STEP_FREQ 4000
 #define DEFUALT_P_GAIN 10
 
+// Constructor
 WristStepper::WristStepper(void (toggleStep)(void), const uint8_t dir_pin, const uint8_t* dmode_pins, const uint8_t enc_pin) :
             _dir_pin(dir_pin), _enc_pin(enc_pin), _dmode_pins(dmode_pins), _toggleStep(toggleStep){
     
@@ -37,6 +38,7 @@ WristStepper::WristStepper(void (toggleStep)(void), const uint8_t dir_pin, const
     // Serial.println("...Done");
 }
 
+// Read the analog encoder value. Should not normally be called externally.
 void WristStepper::sampleEncoder(){
     analogReadAveraging(20);
     _encoder_pos = analogRead(_enc_pin);
@@ -44,7 +46,10 @@ void WristStepper::sampleEncoder(){
 
 }
 
+// Set the microstepping mode
+//      microsteps: the microsteps per full step
 bool WristStepper::setDMode(uint8_t microsteps){
+    // TODO implement other modes
     if(microsteps == 4){
         digitalWrite(_dmode_pins[0], LOW);
         digitalWrite(_dmode_pins[1], HIGH);
@@ -56,6 +61,8 @@ bool WristStepper::setDMode(uint8_t microsteps){
 
 }
 
+// Drive stepper at constant frequency. Does not use encoders.
+//      speed: value from -1 to 1
 bool WristStepper::setSpeed(float speed){
     float step_freq;
     uint8_t dir;
@@ -78,6 +85,9 @@ bool WristStepper::setSpeed(float speed){
     return true;
 }
 
+// Run position control loop.
+//      pos_setpoint: encoder value to target
+//      return: the resulting step frequency
 float WristStepper::setPos(uint16_t pos_setpoint){
     
     if(pos_setpoint > 1023) return false;
@@ -117,7 +127,8 @@ float WristStepper::setPos(uint16_t pos_setpoint){
     return step_freq;
 }
 
-
+// Set target encoder position relative to current position
+//      incremental: encoder counts to move relative to current position.
 bool WristStepper::setPosInc(int16_t incremental){
 
     // incrementals greater than 1023 should be OK

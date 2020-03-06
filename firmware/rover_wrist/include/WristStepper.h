@@ -7,7 +7,6 @@
 
 #include <Arduino.h>
 
-// #define
 
 class WristStepper{
     public:
